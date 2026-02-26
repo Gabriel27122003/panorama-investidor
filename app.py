@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from data_provider import DataProviderError, get_data
+from data_provider import get_data
 from layout import (
     apply_custom_style,
     build_price_chart,
@@ -28,18 +28,11 @@ def main() -> None:
         st.info("Informe um ticker para começar a análise.")
         return
 
-    try:
-        with st.spinner("Buscando dados na Alpha Vantage..."):
-            history = get_data(ticker, period)
-    except DataProviderError as exc:
-        render_friendly_error(str(exc))
-        return
-    except Exception:
-        render_friendly_error("Erro inesperado ao processar os dados.")
-        return
+    with st.spinner("Buscando dados na Alpha Vantage..."):
+        history = get_data(ticker, period)
 
-    if history.empty:
-        render_friendly_error("A API retornou uma série vazia para esse ativo.")
+    if history is None or history.empty:
+        render_friendly_error("Não foi possível carregar os dados desse ativo agora.")
         return
 
     metrics = calculate_metrics(history)

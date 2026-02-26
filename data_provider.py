@@ -8,6 +8,7 @@ import requests
 import streamlit as st
 
 ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query"
+API_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 _PERIOD_TO_DAYS = {
     "1m": 31,
@@ -18,30 +19,23 @@ _PERIOD_TO_DAYS = {
 
 
 class DataProviderError(Exception):
-    """Error raised when market data cannot be loaded from Alpha Vantage."""
+    """Mantida por compatibilidade, mas get_data não propaga exceções."""
 
 
-def _validate_period(period: str) -> str:
-    normalized = period.strip().lower()
-    if normalized not in _PERIOD_TO_DAYS:
-        raise DataProviderError(
-            f"Período inválido: {period}. Use um destes: {', '.join(_PERIOD_TO_DAYS.keys())}."
-        )
-    return normalized
-
-
-def _parse_alpha_vantage_series(payload: dict) -> pd.DataFrame:
-    if "Error Message" in payload:
-        raise DataProviderError("Ticker inválido ou não suportado pela Alpha Vantage.")
-
+def _parse_alpha_vantage_series(payload: dict) -> Optional[pd.DataFrame]:
     if "Note" in payload:
-        raise DataProviderError(
+        st.warning(
             "Limite de requisições da Alpha Vantage atingido. Tente novamente em alguns minutos."
         )
+        return None
+
+    if "Error Message" in payload:
+        st.warning("Ticker inválido ou não suportado pela Alpha Vantage.")
+        return None
 
     series = payload.get("Time Series (Daily)")
     if not isinstance(series, dict) or not series:
-        raise DataProviderError("A API retornou resposta vazia para este ativo.")
+        return None
 
     rows = []
     for date_str, values in series.items():
@@ -58,13 +52,13 @@ def _parse_alpha_vantage_series(payload: dict) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     if df.empty:
-        raise DataProviderError("Não foi possível normalizar os dados retornados pela API.")
+        return None
 
     return df.set_index("Date").sort_index().dropna(subset=["Close"])
 
 
 def _filter_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
-    days = _PERIOD_TO_DAYS[period]
+    days = _PERIOD_TO_DAYS.get(period, _PERIOD_TO_DAYS["6m"])
     if days is None:
         return df
 
@@ -73,47 +67,40 @@ def _filter_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=900)
-def get_data(symbol: str, period: str) -> pd.DataFrame:
-    """Return historical OHLCV data from Alpha Vantage.
-
-    Args:
-        symbol: Asset ticker (ex.: AAPL, PETR4.SA)
-        period: One of: 1m, 6m, 1y, max
-    """
-    api_key = os.getenv("ALPHA_VANTAGE_KEY", "").strip()
-    if not api_key:
-        raise DataProviderError(
-            "Variável de ambiente ALPHA_VANTAGE_KEY não configurada no ambiente."
-        )
-
-    clean_symbol = symbol.strip().upper()
-    if not clean_symbol:
-        raise DataProviderError("Informe um ticker válido.")
-
-    normalized_period = _validate_period(period)
-
-    params = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": clean_symbol,
-        "outputsize": "full" if normalized_period in {"1y", "max"} else "compact",
-        "apikey": api_key,
-    }
-
+def get_data(symbol: str, period: str) -> Optional[pd.DataFrame]:
+    """Busca dados históricos da Alpha Vantage sem quebrar o app em caso de erro."""
     try:
+        if not API_KEY:
+            st.warning("Variável ALPHA_VANTAGE_KEY não configurada.")
+            return None
+
+        clean_symbol = symbol.strip().upper()
+        if not clean_symbol:
+            return None
+
+        normalized_period = period.strip().lower()
+        if normalized_period not in _PERIOD_TO_DAYS:
+            normalized_period = "6m"
+
+        params = {
+            "function": "TIME_SERIES_DAILY_ADJUSTED",
+            "symbol": clean_symbol,
+            "outputsize": "full" if normalized_period in {"1y", "max"} else "compact",
+            "apikey": API_KEY,
+        }
+
         response = requests.get(ALPHA_VANTAGE_URL, params=params, timeout=20)
         response.raise_for_status()
-    except requests.RequestException as exc:
-        raise DataProviderError("Falha de conexão com a Alpha Vantage.") from exc
-
-    try:
         payload = response.json()
-    except ValueError as exc:
-        raise DataProviderError("A resposta da Alpha Vantage não está em formato JSON válido.") from exc
 
-    df = _parse_alpha_vantage_series(payload)
-    filtered = _filter_period(df, normalized_period)
+        df = _parse_alpha_vantage_series(payload)
+        if df is None:
+            return None
 
-    if filtered.empty:
-        raise DataProviderError("Não há dados disponíveis para o período selecionado.")
+        filtered = _filter_period(df, normalized_period)
+        if filtered.empty:
+            return None
 
-    return filtered
+        return filtered
+    except Exception:
+        return None
