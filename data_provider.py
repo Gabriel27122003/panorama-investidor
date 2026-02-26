@@ -14,7 +14,7 @@ _PERIOD_TO_DAYS = {
     "1m": 31,
     "6m": 186,
     "1y": 366,
-    "max": None,
+    "5y": 365 * 5,
 }
 
 
@@ -85,7 +85,7 @@ def get_data(symbol: str, period: str) -> Optional[pd.DataFrame]:
         params = {
             "function": "TIME_SERIES_DAILY_ADJUSTED",
             "symbol": clean_symbol,
-            "outputsize": "full" if normalized_period in {"1y", "max"} else "compact",
+            "outputsize": "full" if normalized_period in {"1y", "5y"} else "compact",
             "apikey": API_KEY,
         }
 

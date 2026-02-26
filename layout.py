@@ -11,7 +11,7 @@ PERIOD_OPTIONS = {
     "1m": "1 mês",
     "6m": "6 meses",
     "1y": "1 ano",
-    "max": "Máximo",
+    "5y": "5 anos",
 }
 
 
@@ -29,6 +29,7 @@ def apply_custom_style() -> None:
                 border-radius: 12px;
                 padding: 0.7rem;
                 background: #ffffff;
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
             }
         </style>
         """,
@@ -60,14 +61,16 @@ def _format_pct(value: Optional[float]) -> str:
 
 def render_kpis(metrics: Dict[str, Optional[float]]) -> None:
     st.markdown('<div class="kpi-row">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("Retorno acumulado", _format_pct(metrics.get("return_accumulated")))
+        st.metric("Retorno", _format_pct(metrics.get("return_accumulated")))
     with c2:
-        st.metric("Volatilidade anualizada", _format_pct(metrics.get("volatility_annualized")))
+        st.metric("Volatilidade", _format_pct(metrics.get("volatility_annualized")))
     with c3:
         sharpe = metrics.get("sharpe")
         st.metric("Sharpe", f"{sharpe:.2f}" if sharpe is not None else "N/A")
+    with c4:
+        st.metric("Drawdown", _format_pct(metrics.get("max_drawdown")))
     st.markdown("</div>", unsafe_allow_html=True)
 
 

@@ -15,7 +15,7 @@ from layout import (
 from metrics import calculate_metrics
 
 
-st.set_page_config(page_title="Panorama Investidor", page_icon="📈", layout="wide")
+st.set_page_config(layout="wide", page_title="Panorama Investidor", page_icon="📈")
 
 
 def main() -> None:
@@ -32,6 +32,7 @@ def main() -> None:
         history = get_data(ticker, period)
 
     if history is None or history.empty:
+        st.info("😕 Não encontramos dados para esse ativo no período selecionado. Tente outro ticker ou período.")
         render_friendly_error("Não foi possível carregar os dados desse ativo agora.")
         return
 
