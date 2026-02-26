@@ -352,6 +352,12 @@ def main() -> None:
     benchmark_history = None
     if benchmark:
         benchmark_history = get_data_with_fallback(benchmark, period)
+        if benchmark_history is None or benchmark_history.empty:
+            st.warning(
+                f"Não foi possível carregar o benchmark {benchmark} no período selecionado. "
+                "O gráfico seguirá apenas com o ativo principal."
+            )
+            benchmark_history = None
 
     indicators = calculate_indicators(history)
 
