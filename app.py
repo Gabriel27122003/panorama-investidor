@@ -108,7 +108,67 @@ def format_percentage(value: Optional[float]) -> str:
     return f"{value:.2f}%"
 
 
-def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
+def calcular_metricas(df: pd.DataFrame, benchmark_df: Optional[pd.DataFrame] = None) -> Dict[str, Optional[float]]:
+    if df.empty or "Close" not in df.columns:
+        return {
+            "retorno_acumulado": None,
+            "cagr": None,
+            "volatilidade_anualizada": None,
+            "sharpe_ratio": None,
+            "max_drawdown": None,
+            "beta_vs_ibov": None,
+        }
+
+    close = df["Close"].dropna()
+    returns = close.pct_change().dropna()
+
+    if len(close) < 2:
+        return {
+            "retorno_acumulado": None,
+            "cagr": None,
+            "volatilidade_anualizada": None,
+            "sharpe_ratio": None,
+            "max_drawdown": None,
+            "beta_vs_ibov": None,
+        }
+
+    retorno_acumulado = ((close.iloc[-1] / close.iloc[0]) - 1) * 100
+
+    anos = len(returns) / 252 if len(returns) > 0 else None
+    cagr = ((close.iloc[-1] / close.iloc[0]) ** (1 / anos) - 1) * 100 if anos and anos > 0 else None
+
+    volatilidade_anualizada = returns.std() * (252**0.5) * 100 if not returns.empty else None
+
+    sharpe_ratio = None
+    if not returns.empty and returns.std() != 0:
+        sharpe_ratio = (returns.mean() / returns.std()) * (252**0.5)
+
+    cumulative = (1 + returns).cumprod()
+    running_max = cumulative.cummax()
+    drawdown = cumulative / running_max - 1
+    max_drawdown = drawdown.min() * 100 if not drawdown.empty else None
+
+    beta_vs_ibov = None
+    if benchmark_df is not None and not benchmark_df.empty and "Close" in benchmark_df.columns:
+        benchmark_returns = benchmark_df["Close"].dropna().pct_change().dropna()
+        aligned = pd.concat([returns, benchmark_returns], axis=1, join="inner").dropna()
+        if not aligned.empty and aligned.shape[0] > 1:
+            aligned.columns = ["asset", "benchmark"]
+            benchmark_var = aligned["benchmark"].var()
+            if benchmark_var != 0 and not pd.isna(benchmark_var):
+                beta_vs_ibov = aligned["asset"].cov(aligned["benchmark"]) / benchmark_var
+
+    return {
+        "retorno_acumulado": retorno_acumulado,
+        "cagr": cagr,
+        "volatilidade_anualizada": volatilidade_anualizada,
+        "sharpe_ratio": sharpe_ratio,
+        "max_drawdown": max_drawdown,
+        "beta_vs_ibov": beta_vs_ibov,
+    }
+
+
+def calculate_indicators(history: pd.DataFrame, benchmark_history: Optional[pd.DataFrame] = None) -> Dict[str, Optional[float]]:
     if history.empty or "Close" not in history.columns:
         return {
             "last_price": None,
@@ -133,12 +193,7 @@ def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
     )
 
     period_return = ((close.iloc[-1] / close.iloc[0]) - 1) * 100 if len(close) > 1 else None
-    volatility = returns.std() * (252**0.5) * 100 if not returns.empty else None
-
-    cumulative = (1 + returns).cumprod()
-    running_max = cumulative.cummax()
-    drawdown = (cumulative / running_max - 1) * 100
-    max_drawdown = drawdown.min() if not drawdown.empty else None
+    metricas = calcular_metricas(history, benchmark_history)
 
     avg_volume = history["Volume"].mean() if "Volume" in history.columns else None
     ma20 = close.tail(20).mean() if len(close) >= 20 else None
@@ -148,8 +203,12 @@ def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
         "last_price": last_price,
         "price_change_pct": price_change_pct,
         "period_return": period_return,
-        "volatility": volatility,
-        "max_drawdown": max_drawdown,
+        "volatility": metricas["volatilidade_anualizada"],
+        "max_drawdown": metricas["max_drawdown"],
+        "retorno_acumulado": metricas["retorno_acumulado"],
+        "cagr": metricas["cagr"],
+        "sharpe_ratio": metricas["sharpe_ratio"],
+        "beta_vs_ibov": metricas["beta_vs_ibov"],
         "avg_volume": avg_volume,
         "ma20": ma20,
         "ma50": ma50,
@@ -314,6 +373,39 @@ def render_indicators(indicators: Dict[str, Optional[float]]) -> None:
         )
 
     st.write("")
+    risk_col1, risk_col2, risk_col3 = st.columns(3)
+    with risk_col1:
+        st.markdown(
+            f"""
+            <div class="summary-card">
+                <b>CAGR</b><br>
+                {f"{indicators['cagr']:.2f}%" if indicators['cagr'] is not None else 'N/A'}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with risk_col2:
+        st.markdown(
+            f"""
+            <div class="summary-card">
+                <b>Sharpe Ratio</b><br>
+                {f"{indicators['sharpe_ratio']:.2f}" if indicators['sharpe_ratio'] is not None else 'N/A'}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with risk_col3:
+        st.markdown(
+            f"""
+            <div class="summary-card">
+                <b>Beta vs IBOV</b><br>
+                {f"{indicators['beta_vs_ibov']:.2f}" if indicators['beta_vs_ibov'] is not None else 'N/A'}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.write("")
     ma_col1, ma_col2 = st.columns(2)
     with ma_col1:
         st.metric("Média Móvel 20", format_currency(indicators["ma20"]))
@@ -329,6 +421,7 @@ def main() -> None:
 
     with st.spinner("Carregando dados do mercado..."):
         history = get_data_with_fallback(ticker, period)
+        benchmark_history = get_data_with_fallback("^BVSP", period)
 
     if history is None or history.empty:
         st.warning("⚠️ Não foi possível carregar os dados agora (possível erro 429/rate limit do Yahoo). Tente novamente em instantes.")
@@ -339,7 +432,7 @@ def main() -> None:
         st.empty()
         return
 
-    indicators = calculate_indicators(history)
+    indicators = calculate_indicators(history, benchmark_history)
 
     with st.container():
         render_overview(indicators)
