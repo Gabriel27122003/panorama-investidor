@@ -1,4 +1,3 @@
-import time
 from typing import Dict, Optional, Tuple
 
 import pandas as pd
@@ -7,9 +6,6 @@ import streamlit as st
 import yfinance as yf
 
 
-# =========================
-# Configuração da página
-# =========================
 st.set_page_config(
     page_title="Panorama Investidor",
     page_icon="📈",
@@ -17,11 +13,7 @@ st.set_page_config(
 )
 
 
-# =========================
-# Estilo global
-# =========================
 def apply_custom_style() -> None:
-    """Aplica CSS leve para melhorar a apresentação visual."""
     st.markdown(
         """
         <style>
@@ -83,65 +75,43 @@ def apply_custom_style() -> None:
     )
 
 
-# =========================
-# Camada de dados
-# =========================
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_history(ticker: str, period: str) -> pd.DataFrame:
-    """Busca histórico de preços com cache para reduzir chamadas ao Yahoo."""
-    # yf.download tende a ser mais eficiente para dados históricos
-    data = yf.download(
-        tickers=ticker,
-        period=period,
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        threads=False,
-    )
+@st.cache_data(ttl=3600)
+def get_data(symbol: str, period: str) -> Optional[pd.DataFrame]:
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period=period)
 
-    if data.empty:
-        return pd.DataFrame()
+        if df.empty:
+            raise ValueError("DataFrame vazio")
 
-    if isinstance(data.columns, pd.MultiIndex):
-        # Segurança para manter colunas simples em casos de MultiIndex
-        data.columns = data.columns.get_level_values(0)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
 
-    data = data[[c for c in ["Open", "High", "Low", "Close", "Volume"] if c in data.columns]]
-    return data.dropna(how="all")
+        keep_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
+        return df[keep_cols].dropna(how="all")
+
+    except Exception:
+        return None
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_fast_metrics(ticker: str) -> Dict[str, Optional[float]]:
-    """Busca métricas rápidas sem usar `.info` para evitar excesso de requisições."""
-    stock = yf.Ticker(ticker)
-    fast_info = stock.fast_info or {}
+def get_data_with_fallback(symbol: str, period: str) -> Optional[pd.DataFrame]:
+    data = get_data(symbol, period)
+    if data is not None and not data.empty:
+        return data
 
-    return {
-        "last_price": fast_info.get("last_price"),
-        "previous_close": fast_info.get("previous_close")
-        or fast_info.get("regular_market_previous_close"),
-        "volume": fast_info.get("last_volume")
-        or fast_info.get("regular_market_volume"),
-        "market_cap": fast_info.get("market_cap"),
-        "currency": fast_info.get("currency") or "",
-    }
+    # fallback automático para período menor
+    if period != "6mo":
+        fallback_data = get_data(symbol, "6mo")
+        if fallback_data is not None and not fallback_data.empty:
+            return fallback_data
+
+    return None
 
 
-def get_ticker_data(ticker: str, period: str) -> Tuple[pd.DataFrame, Dict[str, Optional[float]]]:
-    """Centraliza obtenção de dados para evitar chamadas repetidas em diferentes seções."""
-    history = fetch_history(ticker, period)
-    metrics = fetch_fast_metrics(ticker)
-    return history, metrics
-
-
-# =========================
-# Cálculos e formatação
-# =========================
-def format_currency(value: Optional[float], currency: str = "") -> str:
+def format_currency(value: Optional[float]) -> str:
     if value is None or pd.isna(value):
         return "N/A"
-    prefix = f"{currency} " if currency else ""
-    return f"{prefix}{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def format_number(value: Optional[float]) -> str:
@@ -153,6 +123,8 @@ def format_number(value: Optional[float]) -> str:
 def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
     if history.empty or "Close" not in history.columns:
         return {
+            "last_price": None,
+            "price_change_pct": None,
             "period_return": None,
             "volatility": None,
             "max_drawdown": None,
@@ -163,6 +135,10 @@ def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
 
     close = history["Close"].dropna()
     returns = close.pct_change().dropna()
+
+    last_price = close.iloc[-1] if not close.empty else None
+    previous_close = close.iloc[-2] if len(close) > 1 else None
+    price_change_pct = ((last_price / previous_close) - 1) * 100 if last_price is not None and previous_close not in (None, 0) else None
 
     period_return = ((close.iloc[-1] / close.iloc[0]) - 1) * 100 if len(close) > 1 else None
     volatility = returns.std() * (252**0.5) * 100 if not returns.empty else None
@@ -177,6 +153,8 @@ def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
     ma50 = close.tail(50).mean() if len(close) >= 50 else None
 
     return {
+        "last_price": last_price,
+        "price_change_pct": price_change_pct,
         "period_return": period_return,
         "volatility": volatility,
         "max_drawdown": max_drawdown,
@@ -186,9 +164,6 @@ def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
     }
 
 
-# =========================
-# Gráficos
-# =========================
 def build_price_chart(history: pd.DataFrame, ticker: str) -> go.Figure:
     fig = go.Figure()
 
@@ -249,9 +224,6 @@ def build_volume_chart(history: pd.DataFrame) -> go.Figure:
     return fig
 
 
-# =========================
-# Interface
-# =========================
 def render_header() -> None:
     st.markdown('<div class="app-title">📊 Panorama Investidor</div>', unsafe_allow_html=True)
     st.markdown(
@@ -262,7 +234,7 @@ def render_header() -> None:
 
 def render_sidebar() -> Tuple[str, str]:
     st.sidebar.markdown("## ⚙️ Configurações")
-    st.sidebar.caption("Dados via Yahoo Finance com cache para reduzir chamadas.")
+    st.sidebar.caption("Dados via Yahoo Finance com cache inteligente e fallback automático.")
 
     default_tickers = [
         "PETR4.SA",
@@ -295,31 +267,23 @@ def render_sidebar() -> Tuple[str, str]:
     return selected_ticker, period_labels[selected_period_label]
 
 
-def render_overview(metrics: Dict[str, Optional[float]], indicators: Dict[str, Optional[float]]) -> None:
+def render_overview(indicators: Dict[str, Optional[float]]) -> None:
     st.markdown('<div class="section-title">🧭 Visão Geral</div>', unsafe_allow_html=True)
-
-    currency = metrics.get("currency") or ""
-    price = metrics.get("last_price")
-    previous_close = metrics.get("previous_close")
-
-    price_change_pct = None
-    if price is not None and previous_close not in (None, 0):
-        price_change_pct = ((price / previous_close) - 1) * 100
 
     cols = st.columns(3)
     with cols[0]:
         st.metric(
             "Preço Atual",
-            format_currency(price, currency),
-            f"{price_change_pct:.2f}%" if price_change_pct is not None else "N/A",
+            format_currency(indicators.get("last_price")),
+            f"{indicators['price_change_pct']:.2f}%" if indicators.get("price_change_pct") is not None else "N/A",
         )
     with cols[1]:
-        st.metric("Retorno no Período", f"{indicators['period_return']:.2f}%" if indicators["period_return"] is not None else "N/A")
+        st.metric("Retorno no Período", f"{indicators['period_return']:.2f}%" if indicators.get("period_return") is not None else "N/A")
     with cols[2]:
-        st.metric("Volume", format_number(metrics.get("volume")))
+        st.metric("Volume Médio", format_number(indicators.get("avg_volume")))
 
 
-def render_indicators(indicators: Dict[str, Optional[float]], currency: str) -> None:
+def render_indicators(indicators: Dict[str, Optional[float]]) -> None:
     st.markdown('<div class="section-title">📐 Indicadores</div>', unsafe_allow_html=True)
 
     col_a, col_b, col_c = st.columns(3)
@@ -360,19 +324,9 @@ def render_indicators(indicators: Dict[str, Optional[float]], currency: str) -> 
     st.write("")
     ma_col1, ma_col2 = st.columns(2)
     with ma_col1:
-        st.metric("Média Móvel 20", format_currency(indicators["ma20"], currency))
+        st.metric("Média Móvel 20", format_currency(indicators["ma20"]))
     with ma_col2:
-        st.metric("Média Móvel 50", format_currency(indicators["ma50"], currency))
-
-
-def friendly_error_message(exc: Exception) -> str:
-    msg = str(exc).lower()
-    if "429" in msg or "too many requests" in msg:
-        return (
-            "⚠️ O Yahoo Finance limitou temporariamente as requisições (erro 429). "
-            "Aguarde alguns minutos e tente novamente. O app usa cache para reduzir novas chamadas."
-        )
-    return "Não foi possível carregar os dados do ativo agora. Tente novamente em instantes."
+        st.metric("Média Móvel 50", format_currency(indicators["ma50"]))
 
 
 def main() -> None:
@@ -382,28 +336,25 @@ def main() -> None:
     ticker, period = render_sidebar()
 
     with st.spinner("Carregando dados do mercado..."):
-        try:
-            # pequena pausa ajuda a suavizar chamadas em sequência no Streamlit Cloud
-            time.sleep(0.2)
-            history, metrics = get_ticker_data(ticker, period)
-        except Exception as exc:
-            st.error(friendly_error_message(exc))
-            st.stop()
+        history = get_data_with_fallback(ticker, period)
 
-    if history.empty:
-        st.warning("Sem dados para o ticker/período selecionado. Verifique o símbolo e tente novamente.")
-        st.stop()
+    if history is None or history.empty:
+        st.warning("⚠️ Não foi possível carregar os dados agora. O Yahoo pode estar limitando requisições. Tente novamente em instantes.")
+        st.info("Você pode tentar novamente em alguns minutos ou selecionar outro ativo/período.")
+        st.markdown('<div class="section-title">📈 Histórico</div>', unsafe_allow_html=True)
+        st.empty()
+        st.markdown('<div class="section-title">📐 Indicadores</div>', unsafe_allow_html=True)
+        st.empty()
+        return
 
     indicators = calculate_indicators(history)
 
-    overview_container = st.container()
-    with overview_container:
-        render_overview(metrics, indicators)
+    with st.container():
+        render_overview(indicators)
 
     st.write("")
 
-    history_container = st.container()
-    with history_container:
+    with st.container():
         st.markdown('<div class="section-title">📈 Histórico</div>', unsafe_allow_html=True)
         st.plotly_chart(build_price_chart(history, ticker), use_container_width=True)
 
@@ -412,9 +363,8 @@ def main() -> None:
 
     st.write("")
 
-    indicators_container = st.container()
-    with indicators_container:
-        render_indicators(indicators, metrics.get("currency") or "")
+    with st.container():
+        render_indicators(indicators)
 
 
 if __name__ == "__main__":
