@@ -1,6 +1,13 @@
 # Panorama Investidor
 
-Aplicação Streamlit para análise de ações com dados da **Alpha Vantage** (sem dependência de Yahoo Finance/yfinance).
+Aplicação Streamlit para análise de ações com dados da **Alpha Vantage**.
+
+
+## Fonte de dados
+
+- Provedor único: **Alpha Vantage**
+- Sem uso de **Yahoo Finance**
+- Sem dependência de **yfinance**
 
 ## Pré-requisitos
 
