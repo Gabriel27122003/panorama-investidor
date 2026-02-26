@@ -16,7 +16,8 @@ def _get_ticker(symbol: str) -> yf.Ticker:
 
 
 def _is_rate_limit_error(error: Exception) -> bool:
-    return "429" in str(error)
+    error_message = str(error).lower()
+    return "429" in error_message or "rate limit" in error_message
 
 
 @st.cache_data(ttl=600)
@@ -26,6 +27,8 @@ def get_market_data(ticker: str, period: str) -> Optional[pd.DataFrame]:
     Returns None when Yahoo Finance is unavailable or when no data is found.
     """
     normalized_ticker = ticker.strip().upper()
+    if not normalized_ticker:
+        return None
 
     for attempt in range(1, 4):
         try:

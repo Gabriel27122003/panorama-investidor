@@ -102,6 +102,12 @@ def format_number(value: Optional[float]) -> str:
     return f"{value:,.0f}".replace(",", ".")
 
 
+def format_percentage(value: Optional[float]) -> str:
+    if value is None or pd.isna(value):
+        return "N/A"
+    return f"{value:.2f}%"
+
+
 def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
     if history.empty or "Close" not in history.columns:
         return {
@@ -120,7 +126,11 @@ def calculate_indicators(history: pd.DataFrame) -> Dict[str, Optional[float]]:
 
     last_price = close.iloc[-1] if not close.empty else None
     previous_close = close.iloc[-2] if len(close) > 1 else None
-    price_change_pct = ((last_price / previous_close) - 1) * 100 if last_price is not None and previous_close not in (None, 0) else None
+    price_change_pct = (
+        ((last_price / previous_close) - 1) * 100
+        if last_price is not None and previous_close not in (None, 0) and not pd.isna(previous_close)
+        else None
+    )
 
     period_return = ((close.iloc[-1] / close.iloc[0]) - 1) * 100 if len(close) > 1 else None
     volatility = returns.std() * (252**0.5) * 100 if not returns.empty else None
@@ -257,10 +267,10 @@ def render_overview(indicators: Dict[str, Optional[float]]) -> None:
         st.metric(
             "Preço Atual",
             format_currency(indicators.get("last_price")),
-            f"{indicators['price_change_pct']:.2f}%" if indicators.get("price_change_pct") is not None else "N/A",
+            format_percentage(indicators.get("price_change_pct")),
         )
     with cols[1]:
-        st.metric("Retorno no Período", f"{indicators['period_return']:.2f}%" if indicators.get("period_return") is not None else "N/A")
+        st.metric("Retorno no Período", format_percentage(indicators.get("period_return")))
     with cols[2]:
         st.metric("Volume Médio", format_number(indicators.get("avg_volume")))
 
