@@ -262,7 +262,7 @@ def render_header() -> None:
 
 def render_sidebar() -> Tuple[str, str, Optional[str]]:
     st.sidebar.markdown("## ⚙️ Configurações")
-    st.sidebar.caption("Dados via Yahoo Finance com cache inteligente.")
+    st.sidebar.caption("Dados via Alpha Vantage com fallback automático para Yahoo Finance.")
 
     default_tickers = [
         "PETR4.SA",
@@ -346,7 +346,7 @@ def main() -> None:
             "Não foi possível carregar os dados para este ativo agora. "
             "Verifique o ticker, troque o período ou tente novamente em instantes."
         )
-        st.info("Se o problema persistir, pode ser indisponibilidade temporária do provedor de dados.")
+        st.info("Se o problema persistir, os provedores Alpha Vantage e Yahoo Finance podem estar indisponíveis no momento.")
         return
 
     benchmark_history = None
