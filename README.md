@@ -1,26 +1,37 @@
-# panorama-investidor
+# Panorama Investidor
 
-Aplicação Streamlit para análise rápida de ativos com indicadores de risco e performance.
+Aplicação Streamlit para análise de ações com dados da **Alpha Vantage** (sem dependência de Yahoo Finance/yfinance).
 
-## Configuração
+## Pré-requisitos
 
-1. Crie e ative um ambiente virtual.
-2. Instale dependências:
+1. Python 3.10+
+2. Chave da Alpha Vantage
+
+## Instalação
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Configure a chave da Alpha Vantage via variável de ambiente (sem expor chave no código):
+## Configuração da chave de API
+
+Defina a variável de ambiente usada pelo app:
 
 ```bash
-export API_KEY="sua_chave_alpha_vantage"
+export ALPHA_VANTAGE_KEY="sua_chave"
 ```
 
-> Se `API_KEY` não estiver definida, o app usa fallback direto para `yfinance`.
+No Streamlit Cloud, configure `ALPHA_VANTAGE_KEY` em **Secrets** ou variáveis do app.
 
-## Execução
+## Executar localmente
 
 ```bash
 streamlit run app.py
 ```
+
+## Estrutura do projeto
+
+- `app.py`: ponto de entrada e fluxo principal da interface
+- `data_provider.py`: integração com Alpha Vantage e cache (`@st.cache_data(ttl=900)`)
+- `metrics.py`: cálculos de retorno, volatilidade, sharpe e drawdown
+- `layout.py`: componentes visuais, sidebar, KPIs e gráficos Plotly
